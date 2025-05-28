@@ -1,0 +1,19 @@
+{
+  "aggregators": [
+    {
+      "id": "mb7w5xbtfwots9d2c0t",
+      "name": "all 2do's",
+      "targetChannel": "1375491195672727583",
+      "categories": [
+        "1375491124852162662"
+      ],
+      "channels": [],
+      "excludedChannels": [
+        "1375491195672727583",
+        "1377221406340943924",
+        "1375491194364362892"
+      ],
+      "enabled": true
+    }
+  ]
+}

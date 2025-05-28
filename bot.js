@@ -15,6 +15,9 @@ const channelFormatter = require('./channel-formatter');
 // Importuj komendę rename-emojis
 const renameEmojis = require('./rename-emojis');
 
+// Importuj komendę message-aggregator
+const messageAggregator = require('./message-aggregator');
+
 // Tworzenie klienta Discord
 const client = new Client({
     intents: [
@@ -326,236 +329,250 @@ client.once('ready', async () => {
     // Dodaj komendę rename-emojis do listy
     commands.push(renameEmojis.data);
 
+    // Dodaj komendę message-aggregator do listy
+    commands.push(messageAggregator.data);
+
     
     try {
         await client.application.commands.set(commands);
-        console.log('✅ Komendy /toc i /clear-toc zostały zarejestrowane!');
+        console.log('✅ Wszystkie komendy zostały zarejestrowane!');
     } catch (error) {
         console.error('❌ Błąd podczas rejestracji komend:', error);
     }
 });
 
-// Obsługa interakcji (komend slash)
-client.on('interactionCreate', async (interaction) => {
-    if (!interaction.isCommand()) return;
-    
-    // Komenda /toc
-    if (interaction.commandName === 'toc') {
-        await interaction.deferReply({ ephemeral: true });
-        
-        try {
-            const channel = interaction.options.getChannel('kanal');
-            const attachment = interaction.options.getAttachment('plik');
-            
-            // Sprawdź czy plik jest .txt
-            if (!attachment.name.endsWith('.txt')) {
-                await interaction.editReply('❌ Proszę przesłać plik .txt!');
-                return;
-            }
-            
-            // Pobierz zawartość pliku
-            const response = await fetch(attachment.url);
-            const content = await response.text();
-            
-            // Parsuj zawartość na sekcje i części (tekstowe/tabelaryczne)
-            const sections = parseContent(content);
-            const messageLinks = [];
-            
-            await interaction.editReply('📤 Rozpoczynam publikację Table of Contents...');
-            
-            // Wyślij każdą sekcję
-            for (let i = 0; i < sections.length; i++) {
-                const section = sections[i];
-                
-                let firstMessage = null; // Zapisz pierwszą wysłaną wiadomość dla linku
+// Obsługa nowych wiadomości dla agregatora
+client.on('messageCreate', async (message) => {
+    // Ignoruj wiadomości z DM i systemowe
+    if (!message.guild || message.system || message.author.bot) return; // Ignoruj boty
 
-                // Przetwarzaj części sekcji
-                for (const part of section.parts) {
-                    if (part.type === 'text') {
-                        // Wyślij części tekstowe jako osobne wiadomości
-                        const textMessages = splitMessage(part.content);
-                        for(const textMsg of textMessages) {
-                             if (textMsg.trim().length > 0) { // Upewnij się, że wysyłamy tylko niepuste wiadomości
-                                const msg = await channel.send(textMsg);
-                                if (!firstMessage) firstMessage = msg;
-                             }
-                        }
-                    } else if (part.type === 'table') {
-                         // Generuj obraz tabeli i wyślij jako załącznik
-                         try {
-                             // generateTableImage teraz używa table2canvas i zwraca buffer
-                             const imageBuffer = await generateTableImage(part.data);
-                             if (imageBuffer) { // Sprawdź czy buffer obrazu został pomyślnie wygenerowany
-                                 const attachment = new AttachmentBuilder(imageBuffer, { name: `table_section_${section.number}.png` });
-                                 // Wysyłamy obraz tabeli jako osobną wiadomość
-                                 await channel.send({ files: [attachment] });
-                                 // Obrazy tabeli nie są liczone jako sekcje w spisie treści, więc nie aktualizujemy firstMessage tutaj
-                             } else {
-                                  // Jeśli generateTableImage zwróciło null (brak danych)
-                                 const infoMsg = `ℹ️ Brak danych tabeli do wygenerowania obrazu w Sekcji ${section.number}.`;
-                                 const msg = await channel.send(infoMsg);
+    try {
+        await messageAggregator.handleNewMessage(message, client);
+    } catch (error) {
+        console.error('Błąd podczas obsługi nowej wiadomości przez agregator:', error);
+    }
+});
+
+// Obsługa interakcji (komend slash i komponentów)
+client.on('interactionCreate', async (interaction) => {
+    if (interaction.isCommand()) {
+        // Obsługa komend slash
+        if (interaction.commandName === 'toc') {
+            await interaction.deferReply({ ephemeral: true });
+            
+            try {
+                const channel = interaction.options.getChannel('kanal');
+                const attachment = interaction.options.getAttachment('plik');
+                
+                // Sprawdź czy plik jest .txt
+                if (!attachment.name.endsWith('.txt')) {
+                    await interaction.editReply('❌ Proszę przesłać plik .txt!');
+                    return;
+                }
+                
+                // Pobierz zawartość pliku
+                const response = await fetch(attachment.url);
+                const content = await response.text();
+                
+                // Parsuj zawartość na sekcje i części (tekstowe/tabelaryczne)
+                const sections = parseContent(content);
+                const messageLinks = [];
+                
+                await interaction.editReply('📤 Rozpoczynam publikację Table of Contents...');
+                
+                // Wyślij każdą sekcję
+                for (let i = 0; i < sections.length; i++) {
+                    const section = sections[i];
+                    
+                    let firstMessage = null; // Zapisz pierwszą wysłaną wiadomość dla linku
+
+                    // Przetwarzaj części sekcji
+                    for (const part of section.parts) {
+                        if (part.type === 'text') {
+                            // Wyślij części tekstowe jako osobne wiadomości
+                            const textMessages = splitMessage(part.content);
+                            for(const textMsg of textMessages) {
+                                 if (textMsg.trim().length > 0) { // Upewnij się, że wysyłamy tylko niepuste wiadomości
+                                    const msg = await channel.send(textMsg);
+                                    if (!firstMessage) firstMessage = msg;
+                                 }
+                            }
+                        } else if (part.type === 'table') {
+                             // Generuj obraz tabeli i wyślij jako załącznik
+                             try {
+                                 // generateTableImage teraz używa table2canvas i zwraca buffer
+                                 const imageBuffer = await generateTableImage(part.data);
+                                 if (imageBuffer) { // Sprawdź czy buffer obrazu został pomyślnie wygenerowany
+                                     const attachment = new AttachmentBuilder(imageBuffer, { name: `table_section_${section.number}.png` });
+                                     // Wysyłamy obraz tabeli jako osobną wiadomość
+                                     await channel.send({ files: [attachment] });
+                                     // Obrazy tabeli nie są liczone jako sekcje w spisie treści, więc nie aktualizujemy firstMessage tutaj
+                                 } else {
+                                      // Jeśli generateTableImage zwróciło null (brak danych)
+                                     const infoMsg = `ℹ️ Brak danych tabeli do wygenerowania obrazu w Sekcji ${section.number}.`;
+                                     const msg = await channel.send(infoMsg);
+                                      if (!firstMessage) firstMessage = msg; // Jeśli to pierwsza wiadomość w sekcji, zapisz ją dla linku
+                                 }
+                             } catch (imageError) {
+                                 console.error('Błąd podczas generowania/wysyłania obrazu tabeli:\n', imageError);
+                                 // W razie błędu, wyślij informację o błędzie jako tekst
+                                 const errorMsg = `❌ Wystąpił błąd podczas generowania obrazu tabeli w Sekcji ${section.number}.`;
+                                 const msg = await channel.send(errorMsg);
                                   if (!firstMessage) firstMessage = msg; // Jeśli to pierwsza wiadomość w sekcji, zapisz ją dla linku
                              }
-                         } catch (imageError) {
-                             console.error('Błąd podczas generowania/wysyłania obrazu tabeli:\n', imageError);
-                             // W razie błędu, wyślij informację o błędzie jako tekst
-                             const errorMsg = `❌ Wystąpił błąd podczas generowania obrazu tabeli w Sekcji ${section.number}.`;
-                             const msg = await channel.send(errorMsg);
-                              if (!firstMessage) firstMessage = msg; // Jeśli to pierwsza wiadomość w sekcji, zapisz ją dla linku
-                         }
+                        }
                     }
-                }
 
-                // Zapisz link do pierwszej wiadomości sekcji (użyj jej wyodrębnionego tytułu)
-                 if (firstMessage) {
-                     messageLinks.push({
-                         title: section.title, // Użyj wyodrębnionego tytułu sekcji
-                         url: `https://discord.com/channels/${interaction.guildId}/${channel.id}/${firstMessage.id}`
-                     });
-                 } else if (section.parts.some(part => part.type === 'table')) {
-                      // Jeśli sekcja zawierała tylko tabele i nie udało się wysłać żadnej wiadomości tekstowej (np. błąd generowania obrazu był pierwszą rzeczą)
-                      // W tym przypadku, jeśli był jakikolwiek błąd przy generowaniu obrazu i nie było pierwszej wiadomości,
-                      // powinniśmy już wysłać komunikat o błędzie, który zostanie potencjalnie zapisany jako firstMessage.
-                      // Dodatkowe sprawdzenie, aby upewnić się, że coś zostało wysłane dla sekcji zawierającej tabele, jeśli firstMessage jest nadal null.
-                       const hasTextParts = section.parts.some(part => part.type === 'text' && part.content.trim().length > 0);
-                       if (!hasTextParts) {
-                            // Jeśli sekcja zawierała tylko tabele i nie było żadnych części tekstowych,
-                            // upewniamy się, że wysłano przynajmniej komunikat o błędzie, jeśli wystąpił
-                            // Brak dodatkowego działania, bo błąd jest już obsługiwany wewnątrz pętli części.
-                       }
-                 }
+                    // Zapisz link do pierwszej wiadomości sekcji (użyj jej wyodrębnionego tytułu)
+                     if (firstMessage) {
+                         messageLinks.push({
+                             title: section.title, // Użyj wyodrębnionego tytułu sekcji
+                             url: `https://discord.com/channels/${interaction.guildId}/${channel.id}/${firstMessage.id}`
+                         });
+                     } else if (section.parts.some(part => part.type === 'table')) {
+                          // Jeśli sekcja zawierała tylko tabele i nie udało się wysłać żadnej wiadomości tekstowej (np. błąd generowania obrazu był pierwszą rzeczą)
+                          // W tym przypadku, jeśli był jakikolwiek błąd przy generowaniu obrazu i nie było pierwszej wiadomości,
+                          // powinniśmy już wysłać komunikat o błędzie, który zostanie potencjalnie zapisany jako firstMessage.
+                          // Dodatkowe sprawdzenie, aby upewnić się, że coś zostało wysłane dla sekcji zawierającej tabele, jeśli firstMessage jest nadal null.
+                           const hasTextParts = section.parts.some(part => part.type === 'text' && part.content.trim().length > 0);
+                           if (!hasTextParts) {
+                                // Jeśli sekcja zawierała tylko tabele i nie było żadnych części tekstowych,
+                                // upewniamy się, że wysłano przynajmniej komunikat o błędzie, jeśli wystąpił
+                                // Brak dodatkowego działania, bo błąd jest już obsługiwany wewnątrz pętli części.
+                           }
+                     }
 
-                
-                // Wyślij divider jako obrazek (pomiędzy sekcjami, nie po ostatniej)
-                if (i < sections.length - 1) {
-                    await channel.send(DIVIDER_IMAGE_URL);
-                     // Mała przerwa między sekcjami
-                    await new Promise(resolve => setTimeout(resolve, 1000)); // 1 sekunda przerwy
-                }
-                 // Mała przerwa po wysłaniu wszystkich części sekcji
-                 await new Promise(resolve => setTimeout(resolve, 500)); // 0.5 sekundy przerwy
-            }
-            
-            // Stwórz i wyślij spis treści
-            if (messageLinks.length > 0) {
-                 // Wyślij divider przed spisem treści
-                 await channel.send(DIVIDER_IMAGE_URL);
-                 await new Promise(resolve => setTimeout(resolve, 1000)); // Mała przerwa
-
-                let tocMessage = '📚 **SPIS TREŚCI**\n\n';
-                for (const link of messageLinks) {
-                    // Formatuj linki jako nagłówki markdown drugiego poziomu
-                    tocMessage += `## [${link.title}](${link.url})\n`; // Używa tytułu bez wiodących emoji
-                }
-                 // Upewnij się, że spis treści mieści się w jednej wiadomości lub go podziel
-                const tocMessages = splitMessage(tocMessage);
-                 for(const msg of tocMessages) {
-                      await channel.send(msg);
-                 }
-            }
-
-            
-            await interaction.editReply('✅ Table of Contents został pomyślnie opublikowany!');
-            
-        } catch (error) {
-            console.error('Błąd podczas przetwarzania komendy:\n', error);
-            await interaction.editReply('❌ Wystąpił błąd podczas przetwarzania pliku.');
-        }
-    }
-    
-    // Komenda /clear-toc
-    else if (interaction.commandName === 'clear-toc') {
-        await interaction.deferReply({ ephemeral: true });
-        
-        try {
-            const channel = interaction.options.getChannel('kanal');
-            
-            // Sprawdź uprawnienia
-            if (!channel.permissionsFor(interaction.guild.members.me).has(PermissionFlagsBits.ManageMessages)) {
-                await interaction.editReply('❌ Bot nie ma uprawnień do usuwania wiadomości na tym kanale!');
-                return;
-            }
-            
-            await interaction.editReply('🧹 Rozpoczynam usuwanie wiadomości bota...');
-            
-            let deleted = 0;
-            let lastId = null;
-            
-            // Discord API pozwala pobrać max 100 wiadomości na raz
-            while (true) {
-                const options = { limit: 100 };
-                if (lastId) options.before = lastId;
-                
-                const messages = await channel.messages.fetch(options);
-                if (messages.size === 0) break;
-                
-                // Filtruj tylko wiadomości bota
-                const botMessages = messages.filter(msg => msg.author.id === client.user.id);
-                
-                // Usuń wiadomości (bulk delete dla wiadomości < 14 dni)
-                for (const msg of botMessages.values()) {
-                    try {
-                        await msg.delete();
-                        deleted++;
-                        // Mała przerwa żeby nie przekroczyć rate limit
-                        await new Promise(resolve => setTimeout(resolve, 100));
-                    } catch (err) {
-                        console.error(`Nie można usunąć wiadomości ${msg.id}:`, err);
+                    
+                    // Wyślij divider jako obrazek (pomiędzy sekcjami, nie po ostatniej)
+                    if (i < sections.length - 1) {
+                        await channel.send(DIVIDER_IMAGE_URL);
+                         // Mała przerwa między sekcjami
+                        await new Promise(resolve => setTimeout(resolve, 1000)); // 1 sekunda przerwy
                     }
+                     // Mała przerwa po wysłaniu wszystkich części sekcji
+                     await new Promise(resolve => setTimeout(resolve, 500)); // 0.5 sekundy przerwy
                 }
                 
-                lastId = messages.last()?.id;
+                // Stwórz i wyślij spis treści
+                if (messageLinks.length > 0) {
+                     // Wyślij divider przed spisem treści
+                     await channel.send(DIVIDER_IMAGE_URL);
+                     await new Promise(resolve => setTimeout(resolve, 1000)); // Mała przerwa
+
+                    let tocMessage = '📚 **SPIS TREŚCI**\n\n';
+                    for (const link of messageLinks) {
+                        // Formatuj linki jako nagłówki markdown drugiego poziomu
+                        tocMessage += `## [${link.title}](${link.url})\n`; // Używa tytułu bez wiodących emoji
+                    }
+                     // Upewnij się, że spis treści mieści się w jednej wiadomości lub go podziel
+                    const tocMessages = splitMessage(tocMessage);
+                     for(const msg of tocMessages) {
+                          await channel.send(msg);
+                     }
+                }
+
                 
-                // Jeśli było mniej niż 100 wiadomości, to koniec
-                if (messages.size < 100) break;
+                await interaction.editReply('✅ Table of Contents został pomyślnie opublikowany!');
+                
+            } catch (error) {
+                console.error('Błąd podczas przetwarzania komendy:\n', error);
+                await interaction.editReply('❌ Wystąpił błąd podczas przetwarzania pliku.');
             }
+        } else if (interaction.commandName === 'clear-toc') {
+            await interaction.deferReply({ ephemeral: true });
             
-            await interaction.editReply(`✅ Usunięto ${deleted} wiadomości bota z kanału ${channel.name}`);
-            
-        } catch (error) {
-            console.error('Błąd podczas czyszczenia kanału:', error);
-            await interaction.editReply('❌ Wystąpił błąd podczas usuwania wiadomości.');
-        }
-    }
-    
-    // Komenda /cleanup-categories
-    else if (interaction.commandName === 'cleanup-categories') {
-        try {
-            await cleanupCategories.execute(interaction);
-        } catch (error) {
-            console.error('Błąd podczas wykonywania komendy cleanup-categories:', error);
-            if (interaction.deferred || interaction.replied) {
-                await interaction.followUp({ content: '❌ Wystąpił błąd podczas wykonywania komendy cleanup-categories.', ephemeral: true });
-            } else {
-                await interaction.reply({ content: '❌ Wystąpił błąd podczas wykonywania komendy cleanup-categories.', ephemeral: true });
+            try {
+                const channel = interaction.options.getChannel('kanal');
+                
+                // Sprawdź uprawnienia
+                if (!channel.permissionsFor(interaction.guild.members.me).has(PermissionFlagsBits.ManageMessages)) {
+                    await interaction.editReply('❌ Bot nie ma uprawnień do usuwania wiadomości na tym kanale!');
+                    return;
+                }
+                
+                await interaction.editReply('🧹 Rozpoczynam usuwanie wiadomości bota...');
+                
+                let deleted = 0;
+                let lastId = null;
+                
+                // Discord API pozwala pobrać max 100 wiadomości na raz
+                while (true) {
+                    const options = { limit: 100 };
+                    if (lastId) options.before = lastId;
+                    
+                    const messages = await channel.messages.fetch(options);
+                    if (messages.size === 0) break;
+                    
+                    // Filtruj tylko wiadomości bota
+                    const botMessages = messages.filter(msg => msg.author.id === client.user.id);
+                    
+                    // Usuń wiadomości (bulk delete dla wiadomości < 14 dni)
+                    for (const msg of botMessages.values()) {
+                        try {
+                            await msg.delete();
+                            deleted++;
+                            // Mała przerwa żeby nie przekroczyć rate limit
+                            await new Promise(resolve => setTimeout(resolve, 100));
+                        } catch (err) {
+                            console.error(`Nie można usunąć wiadomości ${msg.id}:`, err);
+                        }
+                    }
+                    
+                    lastId = messages.last()?.id;
+                    
+                    // Jeśli było mniej niż 100 wiadomości, to koniec
+                    if (messages.size < 100) break;
+                }
+                
+                await interaction.editReply(`✅ Usunięto ${deleted} wiadomości bota z kanału ${channel.name}`);
+                
+            } catch (error) {
+                console.error('Błąd podczas czyszczenia kanału:', error);
+                await interaction.editReply('❌ Wystąpił błąd podczas usuwania wiadomości.');
             }
-        }
-    }
-
-    // Komenda /format-channels
-    else if (interaction.commandName === 'format-channels') {
-        try {
-            await channelFormatter.execute(interaction);
-        } catch (error) {
-            console.error('Błąd podczas wykonywania komendy format-channels:', error);
-            if (interaction.deferred || interaction.replied) {
-                await interaction.followUp({ content: '❌ Wystąpił błąd podczas wykonywania komendy format-channels.', ephemeral: true });
-            } else {
-                await interaction.reply({ content: '❌ Wystąpił błąd podczas wykonywania komendy format-channels.', ephemeral: true });
+        } else if (interaction.commandName === 'cleanup-categories') {
+            try {
+                await cleanupCategories.execute(interaction);
+            } catch (error) {
+                console.error('Błąd podczas wykonywania komendy cleanup-categories:', error);
+                if (interaction.deferred || interaction.replied) {
+                    await interaction.followUp({ content: '❌ Wystąpił błąd podczas wykonywania komendy cleanup-categories.', ephemeral: true });
+                } else {
+                    await interaction.reply({ content: '❌ Wystąpił błąd podczas wykonywania komendy cleanup-categories.', ephemeral: true });
+                }
             }
-        }
-    }
-
-    // Komenda /rename-emojis
-    else if (interaction.commandName === 'rename-emojis') {
-        try {
-            await renameEmojis.execute(interaction);
-        } catch (error) {
-            console.error('Błąd podczas wykonywania komendy rename-emojis:', error);
-            if (interaction.deferred || interaction.replied) {
-                await interaction.followUp({ content: '❌ Wystąpił błąd podczas wykonywania komendy rename-emojis.', ephemeral: true });
-            } else {
-                await interaction.reply({ content: '❌ Wystąpił błąd podczas wykonywania komendy rename-emojis.', ephemeral: true });
+        } else if (interaction.commandName === 'format-channels') {
+            try {
+                await channelFormatter.execute(interaction);
+            } catch (error) {
+                console.error('Błąd podczas wykonywania komendy format-channels:', error);
+                if (interaction.deferred || interaction.replied) {
+                    await interaction.followUp({ content: '❌ Wystąpił błąd podczas wykonywania komendy format-channels.', ephemeral: true });
+                } else {
+                    await interaction.reply({ content: '❌ Wystąpił błąd podczas wykonywania komendy format-channels.', ephemeral: true });
+                }
+            }
+        } else if (interaction.commandName === 'rename-emojis') {
+            try {
+                await renameEmojis.execute(interaction);
+            } catch (error) {
+                console.error('Błąd podczas wykonywania komendy rename-emojis:', error);
+                if (interaction.deferred || interaction.replied) {
+                    await interaction.followUp({ content: '❌ Wystąpił błąd podczas wykonywania komendy rename-emojis.', ephemeral: true });
+                } else {
+                    await interaction.reply({ content: '❌ Wystąpił błąd podczas wykonywania komendy rename-emojis.', ephemeral: true });
+                }
+            }
+        } else if (interaction.commandName === 'message-aggregator') {
+            try {
+                await messageAggregator.execute(interaction);
+            } catch (error) {
+                console.error('Błąd podczas wykonywania komendy message-aggregator:', error);
+                if (interaction.deferred || interaction.replied) {
+                    await interaction.followUp({ content: '❌ Wystąpił błąd podczas wykonywania komendy message-aggregator.', ephemeral: true });
+                } else {
+                    await interaction.reply({ content: '❌ Wystąpił błąd podczas wykonywania komendy message-aggregator.', ephemeral: true });
+                }
             }
         }
     }
