@@ -1,0 +1,24 @@
+# Pliki środowiskowe
+.env
+.env.local
+.env.production
+
+# Zależności
+node_modules/
+
+# Logi
+*.log
+npm-debug.log*
+
+# System
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+*.swp
+
+# Tymczasowe
+*.tmp
+*.temp

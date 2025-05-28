@@ -1,0 +1,90 @@
+# Discord Table of Contents Bot
+
+## Instrukcja instalacji i konfiguracji
+
+### 1. Wymagania
+- Node.js (wersja 16.9.0 lub nowsza)
+- npm (menedżer pakietów Node.js)
+- Token bota Discord
+
+### 2. Tworzenie bota na Discord
+1. Przejdź na [Discord Developer Portal](https://discord.com/developers/applications)
+2. Kliknij "New Application" i nadaj nazwę
+3. Przejdź do zakładki "Bot"
+4. Kliknij "Add Bot"
+5. Skopiuj token bota (będzie potrzebny później)
+6. W sekcji "Privileged Gateway Intents" włącz:
+   - MESSAGE CONTENT INTENT
+7. W zakładce "OAuth2" > "URL Generator":
+   - Zaznacz `bot` i `applications.commands`
+   - W uprawnieniach zaznacz: `Send Messages`, `Attach Files`, `Read Message History`, `Manage Messages`, `Embed Links`
+   - Skopiuj wygenerowany link i użyj go do dodania bota na swój serwer
+
+### 3. Instalacja bota
+```bash
+# Sklonuj lub stwórz folder projektu
+mkdir discord-toc-bot
+cd discord-toc-bot
+
+# Skopiuj pliki:
+# - bot.js
+# - package.json
+# - .env
+
+# Zainstaluj zależności
+npm install
+```
+
+### 4. Konfiguracja
+1. Otwórz plik `.env`
+2. Zastąp `YOUR_BOT_TOKEN_HERE` swoim tokenem bota
+3. W pliku `bot.js` zmień linię 17:
+   ```javascript
+   const DIVIDER_IMAGE_URL = 'https://i.imgur.com/YourDividerImage.png';
+   ```
+   Na URL swojego obrazka dividera
+
+### 5. Uruchomienie bota
+```bash
+# Tryb produkcyjny
+npm start
+
+# Tryb deweloperski (automatyczne restartowanie przy zmianach)
+npm run dev
+```
+
+### 6. Używanie bota
+
+#### Komenda `/toc`
+1. Na serwerze Discord użyj komendy: `/toc`
+2. Wybierz kanał docelowy
+3. Załącz plik .txt z zawartością
+4. Bot automatycznie:
+   - Podzieli tekst na sekcje
+   - Wyśle każdą sekcję w osobnych wiadomościach
+   - Wstawi obrazki zamiast "---"
+   - Utworzy spis treści z linkami do sekcji
+
+#### Komenda `/clear-toc`
+1. Użyj komendy: `/clear-toc`
+2. Wybierz kanał do wyczyszczenia
+3. Bot usunie wszystkie swoje wiadomości z tego kanału
+4. **Uwaga**: Wymaga uprawnień do zarządzania wiadomościami
+
+### 7. Struktura pliku .txt
+- Sekcje oddzielaj za pomocą `---` w osobnej linii
+- Tytuły sekcji oznaczaj `#` (np. `# **Tytuł Sekcji**`)
+- Bot automatycznie podzieli długie teksty na mniejsze wiadomości
+- Tabele markdown są automatycznie formatowane w bloki kodu dla lepszej czytelności
+
+### Rozwiązywanie problemów
+- **Bot nie odpowiada**: Sprawdź czy token jest poprawny
+- **Brak uprawnień**: Upewnij się że bot ma odpowiednie uprawnienia na kanale
+- **Komenda nie działa**: Poczekaj chwilę po uruchomieniu bota, rejestracja komend może zająć do minuty
+
+### Personalizacja
+- **Obrazek dividera**: Zmień URL w linii 17 (aktualnie używamy: https://i.ibb.co/0y7hHYqF/line-white.png)
+- **Maksymalna długość wiadomości**: Dostosuj w linii 20
+- **Automatyczne formatowanie tabel**: Tabele markdown są automatycznie konwertowane na ładnie sformatowane bloki kodu
+- **Format spisu treści**: Modyfikuj w linii ~195
+- **Opóźnienie między usuwaniem**: Zmień w linii ~240 (domyślnie: 100ms)
